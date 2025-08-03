@@ -1,9 +1,7 @@
 # .github/workflows/build.yml
 
-# 工作流程名称
 name: Build Server-Mode EXE from Makefile
 
-# 触发条件
 on:
   workflow_dispatch:
   push:
@@ -15,14 +13,13 @@ jobs:
     runs-on: windows-latest
 
     steps:
-    # 步骤 1：检出您的代码
+    # 步骤 1：检出代码
     - name: Checkout repository
       uses: actions/checkout@v4
       with:
         ref: 'core_fix_mp'
 
     # 步骤 2：设置 MSYS2/MinGW64 编译环境
-    # 我们依然需要这个环境，因为它提供了 make 和 g++ 编译器
     - name: Setup MSYS2
       uses: msys2/setup-msys2@v2
       with:
@@ -32,24 +29,33 @@ jobs:
           make
           mingw-w64-x86_64-gcc
 
-    # 步骤 3：使用 Makefile 编译 (服务器模式)
-    # 这是最核心的、完全重写的步骤
+    # 步骤 3：使用 Makefile 编译
     - name: Build with Makefile (Server Mode)
       shell: msys2 {0}
       run: |
-        # 事实证明，checkout之后我们就在项目的根目录。
-        # 这个目录里有 Makefile 文件。
-        
-        # 直接运行 make 命令，并传入 mode=1 参数。
-        # 这会告诉 Makefile 只编译服务器模式。
-        # -j4 参数可以利用多核心进行并行编译，速度更快。
+        # 运行 make 命令，只编译服务器模式
         make mode=1 -j4
 
-    # 步骤 4：上传编译好的可执行文件
-    - name: Upload Artifact
+    # 步骤 4：侦察并上传产物 (核心修正)
+    - name: Find and Upload Artifact
+      shell: bash
+      run: |
+        # 编译完成后，列出当前目录的所有文件，让我们在日志中看到真实的文件名
+        echo "Listing files in current directory to find the executable:"
+        ls -l *.exe
+
+        # 找到那个 .exe 文件并上传
+        # 使用通配符 *.exe 来自动匹配生成的可执行文件，无论它叫什么名字
+        # 这是最稳健、最不可能出错的方法
+        ARTIFACT_PATH=$(find . -maxdepth 1 -name "*.exe" -print -quit)
+        echo "Found artifact at: $ARTIFACT_PATH"
+        # 将文件名写入 GitHub Actions 的环境变量，供下一步使用
+        echo "ARTIFACT_NAME=${ARTIFACT_PATH##*/}" >> $GITHUB_ENV
+
+    - name: Upload the executable
       uses: actions/upload-artifact@v4
       with:
         name: udp2raw-windows-x64-server-only
-        # 根据 Makefile，生成的文件名为 udp2raw_mp_nolib.exe
-        path: udp2raw_mp_nolib.exe
+        # 从上一步的环境变量中读取正确的文件名
+        path: ${{ env.ARTIFACT_NAME }}
         if-no-files-found: error
