@@ -9,7 +9,7 @@ on:
       - 'core_fix_mp'
 
 jobs:
-  build-windows:
+  build-and-upload:
     runs-on: windows-latest
 
     steps:
@@ -29,33 +29,36 @@ jobs:
           make
           mingw-w64-x86_64-gcc
 
-    # 步骤 3：使用 Makefile 编译
-    - name: Build with Makefile (Server Mode)
+    # 步骤 3：编译、侦察并上传 (所有操作在一步内完成)
+    - name: Build, Find, and Upload
       shell: msys2 {0}
       run: |
-        # 运行 make 命令，只编译服务器模式
-        make mode=1 -j4
-
-    # 步骤 4：侦察并上传产物 (核心修正)
-    - name: Find and Upload Artifact
-      shell: bash
-      run: |
-        # 编译完成后，列出当前目录的所有文件，让我们在日志中看到真实的文件名
-        echo "Listing files in current directory to find the executable:"
-        ls -l *.exe
-
-        # 找到那个 .exe 文件并上传
-        # 使用通配符 *.exe 来自动匹配生成的可执行文件，无论它叫什么名字
-        # 这是最稳健、最不可能出错的方法
+        # 1. 运行 make 命令，并把所有输出（包括标准输出和标准错误）都重定向到日志文件，以便分析
+        make mode=1 -j4 > build.log 2>&1 || (cat build.log && exit 1)
+        
+        # 2. 如果 make 命令成功（没有退出），我们才继续往下走
+        echo "Make command completed. Listing current directory contents:"
+        ls -l
+        
+        # 3. 找到生成的 .exe 文件
         ARTIFACT_PATH=$(find . -maxdepth 1 -name "*.exe" -print -quit)
-        echo "Found artifact at: $ARTIFACT_PATH"
-        # 将文件名写入 GitHub Actions 的环境变量，供下一步使用
+        
+        # 4. 检查是否真的找到了文件
+        if [ -z "$ARTIFACT_PATH" ]; then
+          echo "Error: No .exe file found after build."
+          echo "Displaying build log:"
+          cat build.log
+          exit 1
+        fi
+        
+        # 5. 如果找到了，就准备上传
+        echo "Found artifact: $ARTIFACT_PATH"
         echo "ARTIFACT_NAME=${ARTIFACT_PATH##*/}" >> $GITHUB_ENV
 
+    # 步骤 4：上传产物
     - name: Upload the executable
       uses: actions/upload-artifact@v4
       with:
         name: udp2raw-windows-x64-server-only
-        # 从上一步的环境变量中读取正确的文件名
         path: ${{ env.ARTIFACT_NAME }}
         if-no-files-found: error
