@@ -1,32 +1,28 @@
 # .github/workflows/build.yml
 
-# 工作流程名称：明确指出是为哪个分支构建
-name: Build Server-Mode EXE for core_fix_mp branch
+# 工作流程名称
+name: Build Server-Mode EXE from Makefile
 
 # 触发条件
 on:
-  # 允许您在 Actions 页面手动触发
   workflow_dispatch:
-  # 当您向 core_fix_mp 分支推送代码时自动触发
   push:
     branches:
       - 'core_fix_mp'
 
 jobs:
   build-windows:
-    # 使用标准的 Windows 虚拟机
     runs-on: windows-latest
 
     steps:
     # 步骤 1：检出您的代码
-    # 这是最关键的一步，我们将不再做任何关于路径的假设
     - name: Checkout repository
       uses: actions/checkout@v4
-      # 明确指定检出您的 core_fix_mp 分支
       with:
         ref: 'core_fix_mp'
 
     # 步骤 2：设置 MSYS2/MinGW64 编译环境
+    # 我们依然需要这个环境，因为它提供了 make 和 g++ 编译器
     - name: Setup MSYS2
       uses: msys2/setup-msys2@v2
       with:
@@ -34,37 +30,26 @@ jobs:
         update: true
         install: >-
           make
-          cmake
           mingw-w64-x86_64-gcc
 
-    # 步骤 3：编译 udp2raw (服务器模式)
-    # 这是最核心的修正
-    - name: Build udp2raw (Server Mode)
+    # 步骤 3：使用 Makefile 编译 (服务器模式)
+    # 这是最核心的、完全重写的步骤
+    - name: Build with Makefile (Server Mode)
       shell: msys2 {0}
       run: |
-        # 之前的失败，根源在于对当前目录的错误判断。
-        # 事实是：actions/checkout 完成后，我们就在项目的根目录里。
-        # 所以，我们直接在这里进行标准的原地构建流程。
+        # 事实证明，checkout之后我们就在项目的根目录。
+        # 这个目录里有 Makefile 文件。
         
-        # 1. 创建一个构建目录
-        mkdir build
-        
-        # 2. 进入该构建目录
-        cd build
-        
-        # 3. 运行 CMake，让它在上一级目录（也就是项目根目录）寻找 CMakeLists.txt
-        #    并传入 -DMODE=1 来启用服务器模式。
-        cmake .. -DMODE=1
-                 
-        # 4. 执行编译
-        make
+        # 直接运行 make 命令，并传入 mode=1 参数。
+        # 这会告诉 Makefile 只编译服务器模式。
+        # -j4 参数可以利用多核心进行并行编译，速度更快。
+        make mode=1 -j4
 
     # 步骤 4：上传编译好的可执行文件
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
       with:
         name: udp2raw-windows-x64-server-only
-        # 从我们创建的 build 目录中找到 udp2raw.exe
-        path: build/udp2raw.exe
-        # 如果找不到文件则报错，确保编译成功
+        # 根据 Makefile，生成的文件名为 udp2raw_mp_nolib.exe
+        path: udp2raw_mp_nolib.exe
         if-no-files-found: error
