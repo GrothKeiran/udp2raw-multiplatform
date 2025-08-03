@@ -9,7 +9,7 @@ on:
       - 'core_fix_mp'
 
 jobs:
-  build-and-upload:
+  build-windows:
     runs-on: windows-latest
 
     steps:
@@ -25,40 +25,25 @@ jobs:
       with:
         msystem: MINGW64
         update: true
+        # 核心修正 1：在安装列表中加入 git
         install: >-
           make
+          git
           mingw-w64-x86_64-gcc
 
-    # 步骤 3：编译、侦察并上传 (所有操作在一步内完成)
-    - name: Build, Find, and Upload
+    # 步骤 3：使用 Makefile 编译 (服务器模式)
+    - name: Build with Makefile (Server Mode)
       shell: msys2 {0}
       run: |
-        # 1. 运行 make 命令，并把所有输出（包括标准输出和标准错误）都重定向到日志文件，以便分析
-        make mode=1 -j4 > build.log 2>&1 || (cat build.log && exit 1)
-        
-        # 2. 如果 make 命令成功（没有退出），我们才继续往下走
-        echo "Make command completed. Listing current directory contents:"
-        ls -l
-        
-        # 3. 找到生成的 .exe 文件
-        ARTIFACT_PATH=$(find . -maxdepth 1 -name "*.exe" -print -quit)
-        
-        # 4. 检查是否真的找到了文件
-        if [ -z "$ARTIFACT_PATH" ]; then
-          echo "Error: No .exe file found after build."
-          echo "Displaying build log:"
-          cat build.log
-          exit 1
-        fi
-        
-        # 5. 如果找到了，就准备上传
-        echo "Found artifact: $ARTIFACT_PATH"
-        echo "ARTIFACT_NAME=${ARTIFACT_PATH##*/}" >> $GITHUB_ENV
+        # 核心修正 2：使用 Makefile 中指定的正确命令 `make cygwin`
+        # 并通过 mode=1 参数来构建纯服务器模式
+        make cygwin mode=1 -j4
 
-    # 步骤 4：上传产物
-    - name: Upload the executable
+    # 步骤 4：上传编译好的可执行文件
+    - name: Upload Artifact
       uses: actions/upload-artifact@v4
       with:
         name: udp2raw-windows-x64-server-only
-        path: ${{ env.ARTIFACT_NAME }}
+        # 根据 Makefile 的规则，cygwin 目标生成的可执行文件名是 udp2raw.exe
+        path: udp2raw.exe
         if-no-files-found: error
